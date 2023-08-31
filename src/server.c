@@ -2710,7 +2710,7 @@ int listenToPort(int port, int *fds, int *count) {
             if (fds[*count] != ANET_ERR) {
                 anetNonBlock(NULL,fds[*count]);
                 (*count)++;
-            } else if (errno == EAFNOSUPPORT) {
+            } else if (errno == EAFNOSUPPORT || errno == ENOPROTOOPT) {
                 unsupported++;
                 serverLog(LL_WARNING,"Not listening to IPv6: unsupported");
             }
@@ -2722,7 +2722,7 @@ int listenToPort(int port, int *fds, int *count) {
                 if (fds[*count] != ANET_ERR) {
                     anetNonBlock(NULL,fds[*count]);
                     (*count)++;
-                } else if (errno == EAFNOSUPPORT) {
+                } else if (errno == EAFNOSUPPORT || errno == ENOPROTOOPT) {
                     unsupported++;
                     serverLog(LL_WARNING,"Not listening to IPv4: unsupported");
                 }
@@ -4925,6 +4925,7 @@ int redisFork() {
         /* Parent */
         server.stat_fork_time = ustime()-start;
         server.stat_fork_rate = (double) zmalloc_used_memory() * 1000000 / server.stat_fork_time / (1024*1024*1024); /* GB per second. */
+        serverLog(LL_NOTICE,"RedisForkTime: %d", server.stat_fork_time);
         latencyAddSampleIfNeeded("fork",server.stat_fork_time/1000);
         if (childpid == -1) {
             return -1;

@@ -30,6 +30,8 @@
 #include "server.h"
 #include <math.h> /* isnan(), isinf() */
 
+//#define REPORT_CYCLES
+
 /*-----------------------------------------------------------------------------
  * String Commands
  *----------------------------------------------------------------------------*/
@@ -92,7 +94,11 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         "expire",key,c->db->id);
     addReply(c, ok_reply ? ok_reply : shared.ok);
 }
-
+#ifdef REPORT_CYCLES
+unsigned long long setTotTime = 0;
+unsigned long long setCount = 0;
+extern long long getcycles(void);
+#endif
 /* SET key value [NX] [XX] [KEEPTTL] [EX <seconds>] [PX <milliseconds>] */
 void setCommand(client *c) {
     int j;
@@ -100,6 +106,9 @@ void setCommand(client *c) {
     int unit = UNIT_SECONDS;
     int flags = OBJ_SET_NO_FLAGS;
 
+#ifdef REPORT_CYCLES
+    unsigned long long start = getcycles();
+#endif
     for (j = 3; j < c->argc; j++) {
         char *a = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
@@ -144,6 +153,16 @@ void setCommand(client *c) {
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
+
+#ifdef REPORT_CYCLES    
+    setTotTime += (getcycles() - start);
+    setCount++;
+    if (setCount % 100000 == 0) {
+        printf("setAvg=%.2f cycles (count=%llu)\n",
+                (float)setTotTime / setCount,
+                setCount);
+    }
+#endif
 }
 
 void setnxCommand(client *c) {

@@ -236,7 +236,10 @@ REDIS_BENCHMARK_OBJ=ae.o anet.o redis-benchmark.o adlist.o dict.o zmalloc.o siph
 REDIS_CHECK_RDB_NAME=redis-check-rdb
 REDIS_CHECK_AOF_NAME=redis-check-aof
 
-all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME)
+REDIS_TEST_NAME=redis-test
+REDIS_TEST_OBJ=redis-test.o
+
+all: $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_TEST_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME)
 	@echo ""
 	@echo "Hint: It's a good idea to run 'make test' ;)"
 	@echo ""
@@ -304,10 +307,14 @@ $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
 $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
 	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a $(FINAL_LIBS)
 
+# redis-test
+$(REDIS_TEST_NAME): $(REDIS_TEST_OBJ)
+	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a $(FINAL_LIBS)
+
 dict-benchmark: dict.c zmalloc.c sds.c siphash.c
 	$(REDIS_CC) $(FINAL_CFLAGS) $^ -D DICT_BENCHMARK_MAIN -o $@ $(FINAL_LIBS)
 
-DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ:%.o=%.d)
+DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ:%.o=%.d) $(REDIS_500M_TEST_OBJ:%.o=%.d)
 -include $(DEP)
 
 # Because the jemalloc.h header is generated as a part of the jemalloc build,
@@ -317,7 +324,7 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ
 	$(REDIS_CC) -MMD -o $@ -c $<
 
 clean:
-	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep dict-benchmark
+	rm -rf $(REDIS_SERVER_NAME) $(REDIS_SENTINEL_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) $(REDIS_500M_TEST_NAME) $(REDIS_CHECK_RDB_NAME) $(REDIS_CHECK_AOF_NAME) *.o *.gcda *.gcno *.gcov redis.info lcov-html Makefile.dep dict-benchmark
 	rm -f $(DEP)
 
 .PHONY: clean
@@ -351,6 +358,9 @@ test-sds: sds.c sds.h
 bench: $(REDIS_BENCHMARK_NAME)
 	./$(REDIS_BENCHMARK_NAME)
 
+500Mtest: $(REDIS_500M_TEST_NAME)
+	./$(REDIS_500M_TEST_NAME)
+
 32bit:
 	@echo ""
 	@echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
@@ -376,10 +386,11 @@ install: all
 	@mkdir -p $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_SERVER_NAME) $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_BENCHMARK_NAME) $(INSTALL_BIN)
+	$(REDIS_INSTALL) $(REDIS_500M_TEST_NAME) $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_CLI_NAME) $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_CHECK_RDB_NAME) $(INSTALL_BIN)
 	$(REDIS_INSTALL) $(REDIS_CHECK_AOF_NAME) $(INSTALL_BIN)
 	@ln -sf $(REDIS_SERVER_NAME) $(INSTALL_BIN)/$(REDIS_SENTINEL_NAME)
 
 uninstall:
-	rm -f $(INSTALL_BIN)/{$(REDIS_SERVER_NAME),$(REDIS_BENCHMARK_NAME),$(REDIS_CLI_NAME),$(REDIS_CHECK_RDB_NAME),$(REDIS_CHECK_AOF_NAME),$(REDIS_SENTINEL_NAME)}
+	rm -f $(INSTALL_BIN)/{$(REDIS_SERVER_NAME),$(REDIS_BENCHMARK_NAME),$(REDIS_500M_TEST_NAME),$(REDIS_CLI_NAME),$(REDIS_CHECK_RDB_NAME),$(REDIS_CHECK_AOF_NAME),$(REDIS_SENTINEL_NAME)}

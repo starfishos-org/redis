@@ -30,6 +30,7 @@
 
 
 #include <sys/epoll.h>
+#include <stdio.h>
 
 typedef struct aeApiState {
     int epfd;
@@ -111,6 +112,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 
     retval = epoll_wait(state->epfd,state->events,eventLoop->setsize,
             tvp ? (tvp->tv_sec*1000 + tvp->tv_usec/1000) : -1);
+    // printf("%s: retval=%d\n", __func__, retval);
     if (retval > 0) {
         int j;
 

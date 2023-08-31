@@ -37,6 +37,18 @@
 /*-----------------------------------------------------------------------------
  * C-level DB API
  *----------------------------------------------------------------------------*/
+// #define REPORT_CYCLES
+#ifdef REPORT_CYCLES
+uint64_t owFindTotTime = 0, owSetTotTime = 0, signalKeyTotTime = 0;
+uint64_t lookupKeyWriteTotTime = 0, lookupDictGetTotTime = 0, lookupDictFindTotTime = 0, lookupUpdateTotTime = 0;
+unsigned long long count = 0;
+long long getcycles(void) {
+    uint32_t lo, hi;
+
+	__asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
+	return (((uint64_t)hi) << 32) | lo;
+}
+#endif
 
 int keyIsExpired(redisDb *db, robj *key);
 
@@ -53,13 +65,29 @@ void updateLFU(robj *val) {
  * implementations that should instead rely on lookupKeyRead(),
  * lookupKeyWrite() and lookupKeyReadWithFlags(). */
 robj *lookupKey(redisDb *db, robj *key, int flags) {
+#ifdef REPORT_CYCLES
+    uint64_t start = getcycles();
+#endif
     dictEntry *de = dictFind(db->dict,key->ptr);
+#ifdef REPORT_CYCLES
+    if (count)
+        lookupDictFindTotTime += (getcycles() - start);
+#endif
     if (de) {
+#ifdef REPORT_CYCLES
+        start = getcycles();
+#endif
         robj *val = dictGetVal(de);
-
+#ifdef REPORT_CYCLES
+        if (count)
+            lookupDictGetTotTime += (getcycles() - start);
+#endif
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
+#ifdef REPORT_CYCLES
+        start = getcycles();
+#endif
         if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
                 updateLFU(val);
@@ -67,6 +95,10 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
                 val->lru = LRU_CLOCK();
             }
         }
+#ifdef REPORT_CYCLES
+        if (count)
+            lookupUpdateTotTime += (getcycles() - start);
+#endif
         return val;
     } else {
         return NULL;
@@ -99,11 +131,13 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     robj *val;
 
     if (expireIfNeeded(db,key) == 1) {
+        printf("%s:%s:%d:expireIfNeeded\t", __FILE__, __func__, __LINE__);
         /* Key expired. If we are in the context of a master, expireIfNeeded()
          * returns 0 only when the key does not exist at all, so it's safe
          * to return NULL ASAP. */
         if (server.masterhost == NULL) {
             server.stat_keyspace_misses++;
+            printf("%s:%s:%d:notifyKeyspaceEvent\t", __FILE__, __func__, __LINE__);
             notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
             return NULL;
         }
@@ -126,6 +160,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
             server.current_client->cmd->flags & CMD_READONLY)
         {
             server.stat_keyspace_misses++;
+            printf("%s:%s:%d:notifyKeyspaceEvent\t", __FILE__, __func__, __LINE__);
             notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
             return NULL;
         }
@@ -133,6 +168,7 @@ robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     val = lookupKey(db,key,flags);
     if (val == NULL) {
         server.stat_keyspace_misses++;
+        printf("%s:%s:%d:notifyKeyspaceEvent\t", __FILE__, __func__, __LINE__); 
         notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
     }
     else
@@ -157,7 +193,15 @@ robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
 }
 
 robj *lookupKeyWrite(redisDb *db, robj *key) {
-    return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
+#ifdef REPORT_CYCLES
+    uint64_t start = getcycles();
+#endif
+    robj *o = lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
+#ifdef REPORT_CYCLES
+    if (count)
+        lookupKeyWriteTotTime += (getcycles() - start);
+#endif
+    return o;
 }
 
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
@@ -212,16 +256,29 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  *
  * The program is aborted if the key was not already present. */
 void dbOverwrite(redisDb *db, robj *key, robj *val) {
+#ifdef REPORT_CYCLES
+    unsigned long long start, end;
+    start = getcycles();
+#endif
     dictEntry *de = dictFind(db->dict,key->ptr);
-
+#ifdef REPORT_CYCLES
+    if (count) 
+        owFindTotTime += (getcycles() - start);
+#endif
     serverAssertWithInfo(NULL,key,de != NULL);
     dictEntry auxentry = *de;
     robj *old = dictGetVal(de);
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         val->lru = old->lru;
     }
+#ifdef REPORT_CYCLES
+    start = getcycles();
+#endif
     dictSetVal(db->dict, de, val);
-
+#ifdef REPORT_CYCLES
+    if (count) 
+        owSetTotTime += (getcycles() - start);
+#endif
     if (server.lazyfree_lazy_server_del) {
         freeObjAsync(old);
         dictSetVal(db->dict, &auxentry, NULL);
@@ -242,6 +299,9 @@ void dbOverwrite(redisDb *db, robj *key, robj *val) {
  * The client 'c' argument may be set to NULL if the operation is performed
  * in a context where there is no clear client performing the operation. */
 void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, int signal) {
+#ifdef REPORT_CYCLES    
+    count++;
+#endif    
     if (lookupKeyWrite(db,key) == NULL) {
         dbAdd(db,key,val);
     } else {
@@ -249,7 +309,33 @@ void genericSetKey(client *c, redisDb *db, robj *key, robj *val, int keepttl, in
     }
     incrRefCount(val);
     if (!keepttl) removeExpire(db,key);
-    if (signal) signalModifiedKey(c,db,key);
+    if (signal) {
+#ifdef REPORT_CYCLES
+        unsigned long long start = getcycles();
+#endif
+        signalModifiedKey(c,db,key);
+#ifdef REPORT_CYCLES
+        if (count) {
+            signalKeyTotTime += (getcycles() - start);
+        }
+#endif
+    }
+
+#ifdef REPORT_CYCLES
+    if (count && count % 100000 == 0) {
+        // uint64_t lookupKeyWriteTotTime = 0, lookupDictGetTotTime = 0, lookupDictFindTotTime = 0, lookupUpdateTotTime = 0;
+        printf("\tlookupKey: TotTime=%.2f cycles, dictGetAvg=%.2f cycles, dictFindAvg=%.2f cycles, updateAvg=%.2f cycles\n",
+                (float)lookupKeyWriteTotTime / count,
+                (float)lookupDictGetTotTime / count,
+                (float)lookupDictFindTotTime / count,
+                (float)lookupUpdateTotTime / count);
+        printf("\tdbOverwrite: dictFindAvg=%.2f cycles, dictSetAvg=%.2f cycles\n",
+                (float)owFindTotTime / count, 
+                (float)owSetTotTime / count);
+        printf("\tgenericSetKey: signalModifiedKey=%.2f cycles\n",
+                (float)signalKeyTotTime / count);
+    }
+#endif	
 }
 
 /* Common case for genericSetKey() where the TTL is not retained. */
@@ -1295,7 +1381,7 @@ int keyIsExpired(redisDb *db, robj *key) {
  * otherwise the function returns 1 if the key is expired. */
 int expireIfNeeded(redisDb *db, robj *key) {
     if (!keyIsExpired(db,key)) return 0;
-
+    printf("we are running in the context of a slave...\n");
     /* If we are running in the context of a slave, instead of
      * evicting the expired key from the database, we return ASAP:
      * the slave key expiration is controlled by the master that will

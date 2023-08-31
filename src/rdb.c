@@ -1375,6 +1375,7 @@ werr:
 int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
     pid_t childpid;
 
+    serverLog(LL_NOTICE,"RdbSaveBackground called");
     if (hasActiveChildProcess()) return C_ERR;
 
     server.dirty_before_bgsave = server.dirty;

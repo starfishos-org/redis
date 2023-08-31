@@ -496,7 +496,10 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
 
-        if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
+        if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) {
+		s = -1;
+		goto error;
+	}
         if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;
         if (anetListen(err,s,p->ai_addr,p->ai_addrlen,backlog) == ANET_ERR) s = ANET_ERR;
         goto end;
@@ -529,14 +532,18 @@ int anetUnixServer(char *err, char *path, mode_t perm, int backlog)
     int s;
     struct sockaddr_un sa;
 
-    if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
+    if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR) {
+        printf("anetCreateSocket failed\n");
         return ANET_ERR;
+    }
 
     memset(&sa,0,sizeof(sa));
     sa.sun_family = AF_LOCAL;
     strncpy(sa.sun_path,path,sizeof(sa.sun_path)-1);
-    if (anetListen(err,s,(struct sockaddr*)&sa,sizeof(sa),backlog) == ANET_ERR)
+    if (anetListen(err,s,(struct sockaddr*)&sa,sizeof(sa),backlog) == ANET_ERR) {
+        printf("anetListen failed\n");
         return ANET_ERR;
+    }
     if (perm)
         chmod(sa.sun_path, perm);
     return s;

@@ -527,10 +527,16 @@ void hsetnxCommand(client *c) {
     }
 }
 
+// #define REPORT_CYCLES
+uint64_t getTotTime = 0, getCount = 0, setTotTime = 0, setCount = 0;
+extern long long getcycles(void);
+
 void hsetCommand(client *c) {
     int i, created = 0;
     robj *o;
-
+#ifdef REPORT_CYCLES
+    uint64_t start = getcycles();
+#endif
     if ((c->argc % 2) == 1) {
         addReplyErrorFormat(c,"wrong number of arguments for '%s' command",c->cmd->name);
         return;
@@ -554,6 +560,15 @@ void hsetCommand(client *c) {
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
     server.dirty++;
+#ifdef REPORT_CYCLES    
+    setTotTime += (getcycles() - start);
+    setCount++;
+    if (setCount % 10000 == 0) {
+        printf("HMsetAvg=%.2f cycles (count=%llu)\n",
+                (float)setTotTime / setCount,
+                setCount);
+    }
+#endif
 }
 
 void hincrbyCommand(client *c) {
@@ -771,7 +786,9 @@ void genericHgetallCommand(client *c, int flags) {
     robj *o;
     hashTypeIterator *hi;
     int length, count = 0;
-
+#ifdef REPORT_CYCLES
+    uint64_t start = getcycles();
+#endif
     robj *emptyResp = (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) ?
         shared.emptymap[c->resp] : shared.emptyarray;
     if ((o = lookupKeyReadOrReply(c,c->argv[1],emptyResp))
@@ -803,6 +820,15 @@ void genericHgetallCommand(client *c, int flags) {
     /* Make sure we returned the right number of elements. */
     if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) count /= 2;
     serverAssert(count == length);
+#ifdef REPORT_CYCLES    
+    getTotTime += (getcycles() - start);
+    getCount++;
+    if (getCount % 10000 == 0) {
+        printf("HgetAvg=%.2f cycles (count=%llu)\n",
+                (float)getTotTime / getCount,
+                getCount);
+    }
+#endif
 }
 
 void hkeysCommand(client *c) {

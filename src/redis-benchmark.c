@@ -50,6 +50,7 @@
 #include "zmalloc.h"
 #include "atomicvar.h"
 #include "crc16_slottable.h"
+#include <chcore/syscall.h>
 
 #define UNUSED(V) ((void) V)
 #define RANDPTR_INITIAL_SIZE 8
@@ -848,24 +849,29 @@ static void showLatencyReport(void) {
         printf("\n");
 
         qsort(config.latency,config.requests,sizeof(long long),compareLatency);
-        for (i = 0; i < config.requests; i++) {
-            if (config.latency[i]/usbetweenlat != curlat ||
-                i == (config.requests-1))
-            {
-                /* After the 2 milliseconds latency to have percentages split
-                 * by decimals will just add a lot of noise to the output. */
-                if (config.latency[i] >= 2000) {
-                    config.precision = 0;
-                    usbetweenlat = ipow(10,
-                        MAX_LATENCY_PRECISION-config.precision);
-                }
+        // pritn 50% latency
 
-                curlat = config.latency[i]/usbetweenlat;
-                perc = ((float)(i+1)*100)/config.requests;
-                printf("%.2f%% <= %.*f milliseconds\n", perc, config.precision,
-                    curlat/pow(10.0, config.precision));
-            }
-        }
+        printf("50%% <= %.*f milliseconds\n",config.precision,config.latency[config.requests/2]/usbetweenlat/pow(10.0, config.precision));
+        printf("95%% <= %.*f milliseconds\n",config.precision,config.latency[config.requests/20*19]/usbetweenlat/pow(10.0, config.precision));
+        printf("99%% <= %.*f milliseconds\n",config.precision,config.latency[config.requests/100*99]/usbetweenlat/pow(10.0, config.precision));
+        // for (i = 0; i < config.requests; i++) {
+        //     if (config.latency[i]/usbetweenlat != curlat ||
+        //         i == (config.requests-1))
+        //     {
+        //         /* After the 2 milliseconds latency to have percentages split
+        //          * by decimals will just add a lot of noise to the output. */
+        //         if (config.latency[i] >= 2000) {
+        //             config.precision = 0;
+        //             usbetweenlat = ipow(10,
+        //                 MAX_LATENCY_PRECISION-config.precision);
+        //         }
+
+        //         curlat = config.latency[i]/usbetweenlat;
+        //         perc = ((float)(i+1)*100)/config.requests;
+        //         printf("%.2f%% <= %.*f milliseconds\n", perc, config.precision,
+        //             curlat/pow(10.0, config.precision));
+        //     }
+        // }
         printf("%.2f requests per second\n\n", reqpersec);
     } else if (config.csv) {
         printf("\"%s\",\"%.2f\"\n", config.title, reqpersec);
@@ -911,6 +917,7 @@ static void benchmark(char *title, char *cmd, int len) {
     createMissingClients(c);
 
     config.start = mstime();
+    // printf("redis: benchmark start\n");
     if (!config.num_threads) aeMain(config.el);
     else startBenchmarkThreads();
     config.totlatency = mstime()-config.start;
@@ -1514,6 +1521,7 @@ int test_is_selected(char *name) {
 }
 
 int main(int argc, const char **argv) {
+    // u64 npages = usys_track_pf_begin();
     int i;
     char *data, *cmd;
     int len;
@@ -1562,6 +1570,10 @@ int main(int argc, const char **argv) {
     i = parseOptions(argc,argv);
     argc -= i;
     argv += i;
+
+    // FN: bypass remote polling
+    usys_set_excepted_connected_client_num(config.numclients + 1);
+    // printf("set excepted_connected_client_num=%d\n", config.numclients + 1);
 
     config.latency = zmalloc(sizeof(long long)*config.requests);
 
@@ -1800,6 +1812,8 @@ int main(int argc, const char **argv) {
     } while(config.loop);
 
     if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
+
+    // usys_track_pf_end();
 
     return 0;
 }
